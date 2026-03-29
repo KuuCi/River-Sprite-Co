@@ -40,10 +40,9 @@ PLAYER_BONUSES = {1: (0.20, 30), 2: (0.15, 20), 3: (0.10, 15), 4: (0.05, 10), 5:
 PLACEMENT_EMOJIS = {1: "🥇", 2: "🥈", 3: "🥉", 4: "4️⃣", 5: "5️⃣", 6: "6️⃣", 7: "7️⃣", 8: "💀"}
 TRAIT_STYLE_EMOJIS = {0: "⬛", 1: "🟤", 2: "⚪", 3: "🟡", 4: "💎"}
 
-TFT_ACTIVITY_NAMES = ["teamfight tactics"]
-IN_GAME_KEYWORDS = ["in game", "in progress", "round", "stage"]
-IN_QUEUE_KEYWORDS = ["in queue", "queue", "matchmaking", "searching"]
-IN_LOBBY_KEYWORDS = ["lobby", "menu", "idle"]
+TFT_ACTIVITY_NAMES = ["teamfighttactics", "teamfight tactics"]
+IN_GAME_KEYWORDS = ["in game"]
+NOT_IN_GAME_KEYWORDS = ["in queue", "queue", "matchmaking", "searching", "lobby", "menu", "idle", "in lobby"]
 
 DATA_DIR = os.getenv("DATA_DIR", ".")
 DATA_FILE = os.path.join(DATA_DIR, "user_data.json")
@@ -154,16 +153,17 @@ def get_tft_activity(member: discord.Member) -> Optional[discord.Activity]:
     return None
 
 def is_in_game(activity: Optional[discord.Activity]) -> bool:
+    """Check if TFT presence indicates active game.
+    Known format: name='TeamfightTactics(Ranked)', details/state has 'In Game' or 'In Queue'.
+    """
     if not activity: return False
+    name = (getattr(activity, "name", None) or "").lower()
     details = (getattr(activity, "details", None) or "").lower()
     state = (getattr(activity, "state", None) or "").lower()
-    combined = f"{details} {state}"
+    combined = f"{name} {details} {state}"
 
     if any(kw in combined for kw in IN_GAME_KEYWORDS): return True
-    if re.search(r'stage\s*\d', combined) or re.search(r'round\s*\d', combined): return True
-    if any(kw in combined for kw in IN_LOBBY_KEYWORDS + IN_QUEUE_KEYWORDS): return False
-    if getattr(activity, "start", None) or getattr(activity, "timestamps", None): return True
-    if details or state: return True
+    if any(kw in combined for kw in NOT_IN_GAME_KEYWORDS): return False
     return False
 
 def log_activity(label: str, member: discord.Member):
@@ -652,6 +652,16 @@ async def leaderboard(interaction: discord.Interaction):
 async def set_coins(interaction: discord.Interaction, user: discord.Member, amount: int):
     nb = set_balance(str(user.id), amount)
     await interaction.response.send_message(f"✅ **{user.display_name}** → **{nb}** coins")
+
+@bot.tree.command(name="resetcoins", description="Reset ALL users' coins to starting balance (Admin)")
+@app_commands.checks.has_permissions(administrator=True)
+async def reset_coins(interaction: discord.Interaction):
+    count = len(user_balances)
+    for uid in user_balances:
+        user_balances[uid]["balance"] = STARTING_BALANCE
+    save_balances()
+    await interaction.response.send_message(f"🔄 Reset **{count}** user(s) to **{STARTING_BALANCE}** coins.")
+    print(f"🔄 Admin {interaction.user.display_name} reset all balances ({count} users)")
 
 @bot.tree.command(name="rules", description="Show rules and commands")
 async def rules(interaction: discord.Interaction):
