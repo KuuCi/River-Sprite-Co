@@ -76,8 +76,14 @@ class Events(commands.Cog):
         print(f"{'=' * 55}")
 
         try:
+            # Global sync (can take up to 1hr to propagate)
             synced = await self.bot.tree.sync()
-            print(f"🔄 Synced {len(synced)} slash commands")
+            print(f"🔄 Synced {len(synced)} global slash commands")
+            # Copy to each guild and sync (instant)
+            for guild in self.bot.guilds:
+                self.bot.tree.copy_global_to(guild=guild)
+                guild_synced = await self.bot.tree.sync(guild=guild)
+                print(f"🔄 Synced {len(guild_synced)} commands to {guild.name}")
         except Exception as e:
             print(f"❌ Sync failed: {e}")
 
