@@ -146,21 +146,28 @@ riot_api = RiotAPI(os.getenv("RIOT_API_KEY", ""))
 # ==================== PRESENCE DETECTION ====================
 
 def get_tft_activity(member: discord.Member) -> Optional[discord.Activity]:
+    """Detect TFT activity. Discord shows it as:
+    name:    'League of Legends'
+    details: 'Teamfight Tactics (Ranked)'
+    state:   'In Lobby (1 of 3)' / 'In Game' / etc.
+    """
     for activity in member.activities:
-        name = getattr(activity, "name", None)
-        if name and any(kw in name.lower() for kw in TFT_ACTIVITY_NAMES):
+        name = (getattr(activity, "name", None) or "").lower()
+        details = (getattr(activity, "details", None) or "").lower()
+        # Check both name AND details for TFT keywords
+        combined = f"{name} {details}"
+        if any(kw in combined for kw in TFT_ACTIVITY_NAMES):
             return activity
     return None
 
 def is_in_game(activity: Optional[discord.Activity]) -> bool:
     """Check if TFT presence indicates active game.
-    Known format: name='TeamfightTactics(Ranked)', details/state has 'In Game' or 'In Queue'.
+    Format: details='Teamfight Tactics (Ranked)', state='In Game' or 'In Lobby (1 of 3)'.
     """
     if not activity: return False
-    name = (getattr(activity, "name", None) or "").lower()
     details = (getattr(activity, "details", None) or "").lower()
     state = (getattr(activity, "state", None) or "").lower()
-    combined = f"{name} {details} {state}"
+    combined = f"{details} {state}"
 
     if any(kw in combined for kw in IN_GAME_KEYWORDS): return True
     if any(kw in combined for kw in NOT_IN_GAME_KEYWORDS): return False
@@ -246,6 +253,18 @@ async def on_ready():
 @bot.event
 async def on_presence_update(before: discord.Member, after: discord.Member):
     user_id = str(after.id)
+
+    # DEBUG: Log ALL presence changes for registered users (remove once working)
+    if user_id in user_data:
+        before_acts = [f"{getattr(a,'name','?')}" for a in before.activities]
+        after_acts = [f"{getattr(a,'name','?')}" for a in after.activities]
+        if before_acts != after_acts:
+            print(f"🔔 PRESENCE EVENT: {after.display_name}")
+            print(f"   Before: {before_acts if before_acts else '(none)'}")
+            print(f"   After:  {after_acts if after_acts else '(none)'}")
+            for a in after.activities:
+                print(f"   └─ type={type(a).__name__} name={getattr(a,'name',None)} details={getattr(a,'details',None)} state={getattr(a,'state',None)}")
+
     if user_id not in user_data: return
 
     before_tft = get_tft_activity(before)
@@ -675,9 +694,16 @@ async def rules(interaction: discord.Interaction):
 
 @bot.tree.command(name="debugpresence", description="Debug: show your current Discord activities")
 async def debugpresence(interaction: discord.Interaction, user: Optional[discord.Member] = None):
-    target = user or interaction.user; lines = []
+    # Must use guild Member object — User objects don't have activities
+    if user:
+        target = user
+    else:
+        target = interaction.guild.get_member(interaction.user.id)
+    if not target:
+        await interaction.response.send_message("❌ Could not find member in guild.", ephemeral=True); return
+    lines = [f"**Member:** {target.display_name} (ID: {target.id})", f"**Activity count:** {len(target.activities)}", ""]
     for a in target.activities:
-        parts = [f"**{type(a).__name__}**: {getattr(a,'name','?')}"]
+        parts = [f"**{type(a).__name__}**: `{getattr(a,'name','?')}`"]
         if getattr(a,'details',None): parts.append(f"details=`{a.details}`")
         if getattr(a,'state',None): parts.append(f"state=`{a.state}`")
         if getattr(a,'application_id',None): parts.append(f"app_id=`{a.application_id}`")
@@ -687,9 +713,19 @@ async def debugpresence(interaction: discord.Interaction, user: Optional[discord
                 raw = json.dumps(a.to_dict(), indent=2)[:500]
                 lines.append(f"```json\n{raw}\n```")
             except: pass
-    if not lines: lines = ["No activities"]
+    if len(target.activities) == 0: lines.append("⚠️ No activities detected — check Discord Activity Privacy settings")
     tft = get_tft_activity(target); ig = is_in_game(tft)
-    lines.append(f"\n**TFT:** {'✅' if tft else '❌'} | **In game:** {'✅' if ig else '❌'}")
+    lines.append(f"\n**TFT detected:** {'✅' if tft else '❌'} | **In game:** {'✅' if ig else '❌'}")
+
+    # Scan guild: can the bot see ANY activities for ANY member?
+    members_with_activities = 0
+    for m in interaction.guild.members:
+        if m.activities:
+            members_with_activities += 1
+    lines.append(f"\n**Guild scan:** {members_with_activities}/{interaction.guild.member_count} members have visible activities")
+    if members_with_activities == 0:
+        lines.append("⚠️ **Bot can't see ANY activities!** Presence Intent may not be working — toggle it off/on in Dev Portal and redeploy.")
+
     await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
