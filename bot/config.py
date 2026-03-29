@@ -34,6 +34,7 @@ CURSED_COUNT = 2
 BLESSED_BONUS = 20
 CURSED_PENALTY = 15
 THREE_STAR_BOUNTY = 75
+CURRENT_TFT_SET = 16  # Override if auto-detection picks wrong set
 
 # Data paths
 DATA_DIR = os.getenv("DATA_DIR", ".")

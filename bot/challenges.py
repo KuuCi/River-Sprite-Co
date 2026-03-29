@@ -3,61 +3,118 @@ import re
 import aiohttp
 from collections import Counter
 from typing import Optional
-from bot.config import BLESSED_COUNT, CURSED_COUNT, BLESSED_BONUS, CURSED_PENALTY, THREE_STAR_BOUNTY
+from bot.config import BLESSED_COUNT, CURSED_COUNT, BLESSED_BONUS, CURSED_PENALTY, THREE_STAR_BOUNTY, CURRENT_TFT_SET
 from bot.helpers import clean_name
 from bot import state
 
 
+CDRAGON_URL = "https://raw.communitydragon.org/latest/cdragon/tft/en_us.json"
+DDRAGON_VERSIONS_URL = "https://ddragon.leagueoflegends.com/api/versions.json"
+
+
 async def load_champion_pool() -> Optional[int]:
-    """Fetch TFT champion list from Data Dragon. Returns detected set number or None."""
+    """Load TFT champions. Tries CDragon first (accurate set data), falls back to DDragon."""
+    detected_set = None
+
+    # Try CDragon first — it has proper set separation
+    detected_set = await _load_from_cdragon()
+
+    # Fall back to DDragon if CDragon failed
+    if not state.champion_pool:
+        detected_set = await _load_from_ddragon()
+
+    if not state.champion_pool:
+        print("⚠️ No champions loaded — challenges will be disabled until next restart")
+
+    return detected_set
+
+
+async def _load_from_cdragon() -> Optional[int]:
+    """Load from Community Dragon which separates champions by set."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(CDRAGON_URL) as resp:
+                if resp.status != 200:
+                    print(f"⚠️ CDragon returned {resp.status}, falling back to DDragon")
+                    return None
+                data = await resp.json()
+
+                # CDragon has setData array with per-set champion lists
+                set_data = data.get("setData", [])
+                if not set_data:
+                    print("⚠️ CDragon has no setData")
+                    return None
+
+                # Find the target set (configured or highest available)
+                target_set = None
+                target_champs = None
+                for s in set_data:
+                    num = s.get("number") or s.get("mutator")
+                    if num == CURRENT_TFT_SET:
+                        target_set = num
+                        target_champs = s.get("champions", [])
+                        break
+
+                # If configured set not found, use the highest numbered set
+                if not target_champs:
+                    best = max(set_data, key=lambda s: s.get("number", 0) or 0)
+                    target_set = best.get("number")
+                    target_champs = best.get("champions", [])
+
+                if not target_champs:
+                    print("⚠️ CDragon: no champions in set data")
+                    return None
+
+                state.champion_pool.clear()
+                for champ in target_champs:
+                    api_name = champ.get("apiName", "")
+                    name = champ.get("name", clean_name(api_name))
+                    if name and api_name:
+                        state.champion_pool.append({"id": api_name, "name": name})
+
+                print(f"✅ CDragon: Loaded {len(state.champion_pool)} Set {target_set} champions")
+                return target_set
+    except Exception as e:
+        print(f"⚠️ CDragon error: {e}")
+        return None
+
+
+async def _load_from_ddragon() -> Optional[int]:
+    """Fallback: load from Data Dragon, filtering by set prefix."""
     detected_set = None
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get("https://ddragon.leagueoflegends.com/api/versions.json") as resp:
+            async with session.get(DDRAGON_VERSIONS_URL) as resp:
                 if resp.status != 200:
-                    print("❌ Failed to fetch DDragon versions"); return None
+                    print("❌ Failed to fetch DDragon versions")
+                    return None
                 versions = await resp.json()
                 version = versions[0]
-                print(f"📦 Data Dragon version: {version}")
+                print(f"📦 DDragon version: {version}")
 
             url = f"https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/tft-champion.json"
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    print("❌ Failed to fetch TFT champions"); return None
+                    print("❌ Failed to fetch DDragon TFT champions")
+                    return None
                 data = await resp.json()
                 champs = data.get("data", {})
 
-                # First pass: detect current set number
-                set_numbers = Counter()
-                all_champs = []
-                for champ_id, champ_data in champs.items():
-                    champ_entry = {
-                        "id": champ_id,
-                        "name": champ_data.get("name", clean_name(champ_id)),
-                    }
-                    all_champs.append(champ_entry)
-                    match = re.match(r"TFT(\d+)_", champ_id)
-                    if match:
-                        champ_entry["set"] = int(match.group(1))
-                        set_numbers[int(match.group(1))] += 1
+                # Use configured set number
+                target_prefix = f"TFT{CURRENT_TFT_SET}_"
 
-                # Most common set number = current set
-                if set_numbers:
-                    detected_set = set_numbers.most_common(1)[0][0]
-
-                # Second pass: only keep champions from the current set
                 state.champion_pool.clear()
-                for c in all_champs:
-                    if c.get("set") == detected_set:
-                        state.champion_pool.append({"id": c["id"], "name": c["name"]})
+                for champ_id, champ_data in champs.items():
+                    if champ_id.startswith(target_prefix):
+                        state.champion_pool.append({
+                            "id": champ_id,
+                            "name": champ_data.get("name", clean_name(champ_id)),
+                        })
 
-                total_all = len(all_champs)
-                print(f"✅ Loaded {len(state.champion_pool)} Set {detected_set} champions (filtered from {total_all} total)")
+                detected_set = CURRENT_TFT_SET
+                print(f"✅ DDragon: Loaded {len(state.champion_pool)} Set {detected_set} champions (filtered from {len(champs)} total)")
     except Exception as e:
-        print(f"❌ Champion pool load error: {e}")
-
-    if not state.champion_pool:
-        print("⚠️ No champions loaded — challenges will be disabled until next restart")
+        print(f"❌ DDragon error: {e}")
 
     return detected_set
 
