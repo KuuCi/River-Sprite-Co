@@ -235,6 +235,19 @@ async def on_ready():
 
     # Scan for users already in TFT
     print(f"🔍 Scanning for active TFT sessions...")
+    visible_count = 0
+    for guild in bot.guilds:
+        for member in guild.members:
+            if member.bot: continue
+            uid = str(member.id)
+            if member.activities:
+                visible_count += 1
+                if uid in user_data:
+                    acts = ", ".join(f"{getattr(a,'name','?')}(details={getattr(a,'details',None)}, state={getattr(a,'state',None)})" for a in member.activities)
+                    print(f"   👁️ {member.display_name}: {acts}")
+            elif uid in user_data:
+                print(f"   ❌ {member.display_name}: registered but 0 activities visible (status={member.status})")
+    print(f"   📊 Total: {visible_count} members with visible activities")
     for guild in bot.guilds:
         for member in guild.members:
             uid = str(member.id)
@@ -254,16 +267,32 @@ async def on_ready():
 async def on_presence_update(before: discord.Member, after: discord.Member):
     user_id = str(after.id)
 
-    # DEBUG: Log ALL presence changes for registered users (remove once working)
+    # DEBUG: Log ALL presence changes for registered users — including status, activities, everything
     if user_id in user_data:
         before_acts = [f"{getattr(a,'name','?')}" for a in before.activities]
         after_acts = [f"{getattr(a,'name','?')}" for a in after.activities]
-        if before_acts != after_acts:
-            print(f"🔔 PRESENCE EVENT: {after.display_name}")
-            print(f"   Before: {before_acts if before_acts else '(none)'}")
-            print(f"   After:  {after_acts if after_acts else '(none)'}")
+        before_status = str(before.status)
+        after_status = str(after.status)
+
+        # Log ANY change — status, activities, anything
+        status_changed = before_status != after_status
+        acts_changed = before_acts != after_acts
+
+        if status_changed or acts_changed:
+            print(f"🔔 PRESENCE EVENT: {after.display_name} (ID: {user_id})")
+            if status_changed:
+                print(f"   Status: {before_status} → {after_status}")
+            if acts_changed:
+                print(f"   Activities before: {before_acts if before_acts else '(none)'}")
+                print(f"   Activities after:  {after_acts if after_acts else '(none)'}")
+            # Always log full activity details
             for a in after.activities:
-                print(f"   └─ type={type(a).__name__} name={getattr(a,'name',None)} details={getattr(a,'details',None)} state={getattr(a,'state',None)}")
+                print(f"   └─ type={type(a).__name__} name={getattr(a,'name',None)} details={getattr(a,'details',None)} state={getattr(a,'state',None)} app_id={getattr(a,'application_id',None)}")
+                if hasattr(a, 'to_dict'):
+                    try: print(f"      RAW: {a.to_dict()}")
+                    except: pass
+            if not after.activities:
+                print(f"   └─ (no activities)")
 
     if user_id not in user_data: return
 
@@ -701,7 +730,7 @@ async def debugpresence(interaction: discord.Interaction, user: Optional[discord
         target = interaction.guild.get_member(interaction.user.id)
     if not target:
         await interaction.response.send_message("❌ Could not find member in guild.", ephemeral=True); return
-    lines = [f"**Member:** {target.display_name} (ID: {target.id})", f"**Activity count:** {len(target.activities)}", ""]
+    lines = [f"**Member:** {target.display_name} (ID: {target.id})", f"**Status:** {target.status}", f"**Activity count:** {len(target.activities)}", ""]
     for a in target.activities:
         parts = [f"**{type(a).__name__}**: `{getattr(a,'name','?')}`"]
         if getattr(a,'details',None): parts.append(f"details=`{a.details}`")
@@ -727,6 +756,44 @@ async def debugpresence(interaction: discord.Interaction, user: Optional[discord
         lines.append("⚠️ **Bot can't see ANY activities!** Presence Intent may not be working — toggle it off/on in Dev Portal and redeploy.")
 
     await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+
+@bot.tree.command(name="debugscan", description="Debug: show which members have visible activities")
+async def debugscan(interaction: discord.Interaction):
+    """List members the bot CAN see activities for — helps find what's different."""
+    lines = []
+    visible = []
+    registered_visible = []
+
+    for m in interaction.guild.members:
+        if m.bot: continue
+        if m.activities:
+            acts = ", ".join(f"{getattr(a,'name','?')}" for a in m.activities)
+            details = ", ".join(f"{getattr(a,'details','')}" for a in m.activities if getattr(a,'details',None))
+            entry = f"✅ **{m.display_name}**: {acts}"
+            if details: entry += f" — `{details}`"
+            visible.append(entry)
+            if str(m.id) in user_data:
+                registered_visible.append(m.display_name)
+        elif str(m.id) in user_data:
+            lines.append(f"❌ **{m.display_name}** (registered but NO activities visible)")
+
+    total = sum(1 for m in interaction.guild.members if not m.bot)
+    header = f"**Bot can see activities for {len(visible)}/{total} non-bot members**\n"
+
+    if lines:
+        header += f"⚠️ **Registered users with NO visible activities:**\n" + "\n".join(lines) + "\n"
+
+    if registered_visible:
+        header += f"\n✅ **Registered users WITH visible activities:** {', '.join(registered_visible)}\n"
+
+    header += f"\n**All visible members:**\n"
+    output = header + "\n".join(visible[:20])
+    if len(visible) > 20: output += f"\n... and {len(visible)-20} more"
+
+    # Truncate if too long
+    if len(output) > 1900: output = output[:1900] + "..."
+    await interaction.response.send_message(output, ephemeral=True)
 
 
 # ==================== RUN ====================
