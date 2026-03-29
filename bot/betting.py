@@ -11,8 +11,22 @@ from bot.storage import get_balance, update_balance
 from bot.challenges import generate_challenges, format_challenges, evaluate_challenges
 from bot.helpers import format_traits, format_units, format_augments, format_duration, queue_name
 
+# Per-guild lock to prevent race conditions when multiple players start at once
+_guild_locks: dict[int, asyncio.Lock] = {}
+
+def _get_lock(guild_id: int) -> asyncio.Lock:
+    if guild_id not in _guild_locks:
+        _guild_locks[guild_id] = asyncio.Lock()
+    return _guild_locks[guild_id]
+
 
 async def open_betting(bot, member: discord.Member, user_info: dict):
+    guild_id = member.guild.id
+    async with _get_lock(guild_id):
+        await _open_betting_inner(bot, member, user_info)
+
+
+async def _open_betting_inner(bot, member: discord.Member, user_info: dict):
     ch_id = state.announcement_channels.get(member.guild.id)
     if not ch_id:
         return
@@ -124,12 +138,17 @@ async def rebuild_group_embed(bot, guild_id: int, channel=None):
     if group.get("message"):
         try:
             await group["message"].edit(embed=embed)
-        except:
-            msg = await channel.send(embed=embed)
-            group["message"] = msg
-    else:
-        msg = await channel.send(embed=embed)
-        group["message"] = msg
+            return  # Edit succeeded
+        except Exception as e:
+            print(f"⚠️ Failed to edit betting embed: {e}")
+            # Delete old message and send new one
+            try:
+                await group["message"].delete()
+            except:
+                pass
+
+    msg = await channel.send(embed=embed)
+    group["message"] = msg
 
 
 async def close_group_after_delay(bot, guild_id: int, delay: int):
@@ -174,8 +193,8 @@ async def close_group_betting(bot, guild_id: int):
             e.description = desc
             e.color = discord.Color.dark_gray()
             await group["message"].edit(embed=e)
-        except:
-            pass
+        except Exception as ex:
+            print(f"⚠️ Failed to edit close embed: {ex}")
 
     print(f"🔒 Group betting closed for guild {guild_id}")
 
