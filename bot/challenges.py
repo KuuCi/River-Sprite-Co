@@ -27,31 +27,37 @@ async def load_champion_pool() -> Optional[int]:
                 data = await resp.json()
                 champs = data.get("data", {})
 
-                state.champion_pool.clear()
+                # First pass: detect current set number
                 set_numbers = Counter()
+                all_champs = []
                 for champ_id, champ_data in champs.items():
-                    state.champion_pool.append({
+                    champ_entry = {
                         "id": champ_id,
                         "name": champ_data.get("name", clean_name(champ_id)),
-                    })
-                    # Extract set number from ID like "TFT13_Ahri"
+                    }
+                    all_champs.append(champ_entry)
                     match = re.match(r"TFT(\d+)_", champ_id)
                     if match:
+                        champ_entry["set"] = int(match.group(1))
                         set_numbers[int(match.group(1))] += 1
 
                 # Most common set number = current set
                 if set_numbers:
                     detected_set = set_numbers.most_common(1)[0][0]
 
-                print(f"✅ Loaded {len(state.champion_pool)} TFT champions (Set {detected_set})")
+                # Second pass: only keep champions from the current set
+                state.champion_pool.clear()
+                for c in all_champs:
+                    if c.get("set") == detected_set:
+                        state.champion_pool.append({"id": c["id"], "name": c["name"]})
+
+                total_all = len(all_champs)
+                print(f"✅ Loaded {len(state.champion_pool)} Set {detected_set} champions (filtered from {total_all} total)")
     except Exception as e:
         print(f"❌ Champion pool load error: {e}")
 
     if not state.champion_pool:
-        print("⚠️ Using fallback champion pool")
-        for name in ["Ahri", "Jinx", "Yasuo", "Lux", "Zed", "Sona", "Garen", "Darius", "Vi", "Ezreal",
-                      "Morgana", "Warwick", "Fiora", "Shen", "Jax", "Kayle", "Irelia", "Yone", "Akali", "Viego"]:
-            state.champion_pool.append({"id": f"TFT_Fallback_{name}", "name": name})
+        print("⚠️ No champions loaded — challenges will be disabled until next restart")
 
     return detected_set
 
