@@ -35,6 +35,22 @@ class Events(commands.Cog):
 
         detected_set = await load_champion_pool()
 
+        # Validate Riot API key
+        import os
+        from bot.riot_api import RiotAPI
+        rk = os.getenv("RIOT_API_KEY", "").strip()
+        if rk:
+            test_api = RiotAPI(rk)
+            status, _ = await test_api._get(f"https://americas.api.riotgames.com/tft/match/v1/matches/by-puuid/test/ids?count=1")
+            if status in (401, 403):
+                print(f"❌ RIOT API KEY IS INVALID! Key: {rk[:15]}... — regenerate at developer.riotgames.com")
+            elif status == 404:
+                print(f"✅ Riot API key is valid (got 404 for dummy puuid, as expected)")
+            else:
+                print(f"🔑 Riot API key check returned status {status}")
+        else:
+            print(f"⚠️ No RIOT_API_KEY set — match results won't work")
+
         # Seasonal reset: if TFT set changed, reset all balances
         if detected_set is not None:
             if state.last_tft_set is not None and detected_set != state.last_tft_set:
