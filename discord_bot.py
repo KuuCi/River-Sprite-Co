@@ -723,14 +723,25 @@ async def rules(interaction: discord.Interaction):
 
 @bot.tree.command(name="debugpresence", description="Debug: show your current Discord activities")
 async def debugpresence(interaction: discord.Interaction, user: Optional[discord.Member] = None):
-    # Must use guild Member object — User objects don't have activities
-    if user:
-        target = user
-    else:
-        target = interaction.guild.get_member(interaction.user.id)
+    target_id = user.id if user else interaction.user.id
+
+    # Use bot's guild cache — interaction.guild may not have presence data
+    guild = bot.get_guild(interaction.guild_id)
+    if not guild:
+        guild = interaction.guild
+
+    target = None
+    for m in guild.members:
+        if m.id == target_id:
+            target = m
+            break
+
+    if not target:
+        target = interaction.guild.get_member(target_id)
     if not target:
         await interaction.response.send_message("❌ Could not find member in guild.", ephemeral=True); return
-    lines = [f"**Member:** {target.display_name} (ID: {target.id})", f"**Status:** {target.status}", f"**Activity count:** {len(target.activities)}", ""]
+
+    lines = [f"**Member:** {target.display_name} (ID: {target.id})", f"**Status:** {target.status}", f"**Raw status:** `{target.raw_status}`" if hasattr(target, 'raw_status') else "", f"**Activity count:** {len(target.activities)}", ""]
     for a in target.activities:
         parts = [f"**{type(a).__name__}**: `{getattr(a,'name','?')}`"]
         if getattr(a,'details',None): parts.append(f"details=`{a.details}`")
