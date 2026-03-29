@@ -217,15 +217,16 @@ class Commands(commands.Cog):
         nb = set_balance(str(user.id), amount)
         await interaction.response.send_message(f"✅ **{user.display_name}** → **{nb}** coins")
 
-    @app_commands.command(name="resetcoins", description="Reset ALL coins to starting balance (Admin)")
+    @app_commands.command(name="resetcoins", description="Reset ALL coins (Admin). Defaults to starting balance, use 0 to wipe.")
+    @app_commands.describe(amount="Amount to reset to (default: starting balance, use 0 to wipe)")
     @app_commands.checks.has_permissions(administrator=True)
-    async def reset_coins(self, interaction: discord.Interaction):
+    async def reset_coins(self, interaction: discord.Interaction, amount: int = STARTING_BALANCE):
         count = len(state.user_balances)
         for uid in state.user_balances:
-            state.user_balances[uid]["balance"] = STARTING_BALANCE
+            state.user_balances[uid]["balance"] = max(0, amount)
         save_balances()
-        await interaction.response.send_message(f"🔄 Reset **{count}** user(s) to **{STARTING_BALANCE}** coins.")
-        print(f"🔄 Admin {interaction.user.display_name} reset all balances")
+        await interaction.response.send_message(f"🔄 Reset **{count}** user(s) to **{amount}** coins.")
+        print(f"🔄 Admin {interaction.user.display_name} reset all balances to {amount}")
 
     @app_commands.command(name="rules", description="Show rules and commands")
     async def rules(self, interaction: discord.Interaction):

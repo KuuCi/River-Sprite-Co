@@ -5,12 +5,12 @@ from datetime import datetime, timezone
 
 from bot.config import (
     MATCH_FETCH_DELAY, MATCH_FETCH_RETRIES, MATCH_FETCH_RETRY_INTERVAL,
-    DAILY_BONUS, VC_MINUTES_FOR_DAILY,
+    DAILY_BONUS, VC_MINUTES_FOR_DAILY, STARTING_BALANCE,
 )
 from bot import state
 from bot.storage import (
     load_user_data, load_settings, load_balances,
-    save_user_data, save_balances, get_balance, update_balance,
+    save_user_data, save_settings, save_balances, get_balance, update_balance,
 )
 from bot.presence import get_tft_activity, is_in_game, log_activity
 from bot.challenges import load_champion_pool
@@ -26,7 +26,35 @@ class Events(commands.Cog):
         load_user_data()
         load_settings()
         load_balances()
-        await load_champion_pool()
+        detected_set = await load_champion_pool()
+
+        # Seasonal reset: if TFT set changed, reset all balances
+        if detected_set is not None:
+            if state.last_tft_set is not None and detected_set != state.last_tft_set:
+                old_set = state.last_tft_set
+                count = len(state.user_balances)
+                for uid in state.user_balances:
+                    state.user_balances[uid]["balance"] = STARTING_BALANCE
+                save_balances()
+                state.last_tft_set = detected_set
+                save_settings()
+                print(f"🔄 NEW SEASON! Set {old_set} → Set {detected_set}. Reset {count} user(s) to {STARTING_BALANCE} coins.")
+
+                # Announce in all channels
+                for guild_id, ch_id in state.announcement_channels.items():
+                    guild = self.bot.get_guild(guild_id)
+                    if guild:
+                        ch = guild.get_channel(ch_id)
+                        if ch:
+                            await ch.send(
+                                f"🎉 **New TFT Season!** Set {old_set} → Set {detected_set}\n"
+                                f"All balances have been reset to **{STARTING_BALANCE}** coins. Good luck!"
+                            )
+            elif state.last_tft_set is None:
+                # First run — just save the set number, don't reset
+                state.last_tft_set = detected_set
+                save_settings()
+                print(f"📌 First run — saved current set: {detected_set}")
 
         print(f"{'=' * 55}")
         print(f"✅ {self.bot.user} is online! (TFT Bot)")

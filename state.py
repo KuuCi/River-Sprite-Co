@@ -23,3 +23,6 @@ pending_results = {}
 
 # [{"id": "TFT13_Ahri", "name": "Ahri"}, ...]
 champion_pool = []
+
+# Last known TFT set number (for seasonal reset detection)
+last_tft_set = None

@@ -1,17 +1,21 @@
 import random
+import re
 import aiohttp
+from collections import Counter
+from typing import Optional
 from bot.config import BLESSED_COUNT, CURSED_COUNT, BLESSED_BONUS, CURSED_PENALTY, THREE_STAR_BOUNTY
 from bot.helpers import clean_name
 from bot import state
 
 
-async def load_champion_pool():
-    """Fetch TFT champion list from Data Dragon (no API key needed)."""
+async def load_champion_pool() -> Optional[int]:
+    """Fetch TFT champion list from Data Dragon. Returns detected set number or None."""
+    detected_set = None
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get("https://ddragon.leagueoflegends.com/api/versions.json") as resp:
                 if resp.status != 200:
-                    print("❌ Failed to fetch DDragon versions"); return
+                    print("❌ Failed to fetch DDragon versions"); return None
                 versions = await resp.json()
                 version = versions[0]
                 print(f"📦 Data Dragon version: {version}")
@@ -19,17 +23,27 @@ async def load_champion_pool():
             url = f"https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/tft-champion.json"
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    print("❌ Failed to fetch TFT champions"); return
+                    print("❌ Failed to fetch TFT champions"); return None
                 data = await resp.json()
                 champs = data.get("data", {})
 
                 state.champion_pool.clear()
+                set_numbers = Counter()
                 for champ_id, champ_data in champs.items():
                     state.champion_pool.append({
                         "id": champ_id,
                         "name": champ_data.get("name", clean_name(champ_id)),
                     })
-                print(f"✅ Loaded {len(state.champion_pool)} TFT champions")
+                    # Extract set number from ID like "TFT13_Ahri"
+                    match = re.match(r"TFT(\d+)_", champ_id)
+                    if match:
+                        set_numbers[int(match.group(1))] += 1
+
+                # Most common set number = current set
+                if set_numbers:
+                    detected_set = set_numbers.most_common(1)[0][0]
+
+                print(f"✅ Loaded {len(state.champion_pool)} TFT champions (Set {detected_set})")
     except Exception as e:
         print(f"❌ Champion pool load error: {e}")
 
@@ -38,6 +52,8 @@ async def load_champion_pool():
         for name in ["Ahri", "Jinx", "Yasuo", "Lux", "Zed", "Sona", "Garen", "Darius", "Vi", "Ezreal",
                       "Morgana", "Warwick", "Fiora", "Shen", "Jax", "Kayle", "Irelia", "Yone", "Akali", "Viego"]:
             state.champion_pool.append({"id": f"TFT_Fallback_{name}", "name": name})
+
+    return detected_set
 
 
 def generate_challenges() -> dict:

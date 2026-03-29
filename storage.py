@@ -17,13 +17,18 @@ def load_settings():
     if os.path.exists(SETTINGS_FILE):
         data = json.load(open(SETTINGS_FILE))
         state.announcement_channels = {int(k): v for k, v in data.get("announcement_channels", {}).items()}
+        state.last_tft_set = data.get("last_tft_set")
     else:
         state.announcement_channels = {}
+        state.last_tft_set = None
 
 
 def save_settings():
     with open(SETTINGS_FILE, "w") as f:
-        json.dump({"announcement_channels": state.announcement_channels}, f, indent=2)
+        json.dump({
+            "announcement_channels": state.announcement_channels,
+            "last_tft_set": state.last_tft_set,
+        }, f, indent=2)
 
 
 def load_balances():

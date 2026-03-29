@@ -149,9 +149,29 @@ async def close_group_betting(bot, guild_id: int):
 
     if group.get("message"):
         try:
-            player_names = [state.active_bets[bk]["player_name"] for bk in group["player_bks"] if bk in state.active_bets]
+            player_names = []
+            bounty_lines = []
+            for bk in group["player_bks"]:
+                bd = state.active_bets.get(bk)
+                if not bd:
+                    continue
+                player_names.append(bd["player_name"])
+                t4 = sum(bd["bets"]["top4"].values())
+                b4 = sum(bd["bets"]["bot4"].values())
+                total = t4 + b4
+                t4c = len(bd["bets"]["top4"])
+                b4c = len(bd["bets"]["bot4"])
+                bounty_lines.append(
+                    f"**{bd['player_name']}** — 💰 **{total}** coins at stake\n"
+                    f"🏆 Top 4: {t4} ({t4c} bets) | 💀 Bot 4: {b4} ({b4c} bets)"
+                )
+
+            desc = "**Bounties:**\n\n" + "\n\n".join(bounty_lines) if bounty_lines else ""
+            desc += "\n\nResults when the game ends..."
+
             e = group["message"].embeds[0]
             e.title = f"🔒 Betting Closed: {', '.join(player_names)}"
+            e.description = desc
             e.color = discord.Color.dark_gray()
             await group["message"].edit(embed=e)
         except:
