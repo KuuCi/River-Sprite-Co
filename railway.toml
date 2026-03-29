@@ -2,5 +2,5 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "python discord_bot.py"
+startCommand = "python -m bot.main"
 restartPolicyType = "always"
