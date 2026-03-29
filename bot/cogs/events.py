@@ -210,21 +210,43 @@ class Events(commands.Cog):
                 pass
 
     async def _fetch_and_announce(self, user_id: str, info: dict, guild_id: int):
-        """Wait for match data, then queue for grouped announcement."""
+        """Wait for match data, then find ALL registered players in the same match."""
+        # Skip if this player was already handled by another player's fetch
+        if guild_id in state.pending_results:
+            already_queued = {r["user_id"] for r in state.pending_results[guild_id]["results"]}
+            if user_id in already_queued:
+                print(f"⏭️ {info['riot_name']} already queued by squad mate's fetch, skipping")
+                return
+
         from bot.riot_api import RiotAPI
         import os
         riot_api = RiotAPI(os.getenv("RIOT_API_KEY", ""))
 
-        puuid, region = info["puuid"], info["region"]
+        puuid = info.get("puuid")
+        region = info.get("region", "americas")
+        if not puuid:
+            print(f"❌ {info.get('riot_name', user_id)} has no puuid — need to re-register with /register")
+            return
+
         old_match_id = info.get("last_match_id")
 
         print(f"⏳ Waiting {MATCH_FETCH_DELAY}s for {info['riot_name']}'s match data...")
         await asyncio.sleep(MATCH_FETCH_DELAY)
 
+        # Check again after waiting — squad mate may have handled this already
+        if guild_id in state.pending_results:
+            already_queued = {r["user_id"] for r in state.pending_results[guild_id]["results"]}
+            if user_id in already_queued:
+                print(f"⏭️ {info['riot_name']} already queued during wait, skipping")
+                return
+
         new_match_id = None
         match_data = None
 
         for attempt in range(MATCH_FETCH_RETRIES):
+            if riot_api.auth_failed:
+                print(f"❌ Riot API key expired — skipping retries. Regenerate at developer.riotgames.com")
+                break
             ids = await riot_api.get_match_ids(puuid, region, count=5)
             if ids:
                 for mid in ids:
@@ -247,28 +269,46 @@ class Events(commands.Cog):
                 await cancel_bets(self.bot, bk, "Match data unavailable — all bets refunded")
             return
 
-        info["last_match_id"] = new_match_id
-        save_user_data()
+        # Build a lookup of all participants by puuid
+        participants = match_data.get("info", {}).get("participants", [])
+        participant_map = {p.get("puuid"): p for p in participants}
 
-        player_data = next(
-            (p for p in match_data.get("info", {}).get("participants", []) if p.get("puuid") == puuid),
-            None,
-        )
-        if not player_data:
-            print(f"❌ Player not in participants")
-            return
-
-        placement = player_data.get("placement", 0)
-        print(f"📊 {info['riot_name']} placed #{placement}")
-
+        # Find ALL registered players in this match and queue them all
         guild = self.bot.get_guild(guild_id)
         if not guild:
             return
-        member = guild.get_member(int(user_id))
-        if not member:
-            return
 
-        await queue_result(self.bot, guild_id, user_id, member, info, match_data, player_data, placement)
+        already_queued = set()
+        if guild_id in state.pending_results:
+            already_queued = {r["user_id"] for r in state.pending_results[guild_id]["results"]}
+
+        players_found = 0
+        for uid, uinfo in state.user_data.items():
+            if uid in already_queued:
+                continue
+
+            p_puuid = uinfo.get("puuid")
+            if p_puuid and p_puuid in participant_map:
+                player_data = participant_map[p_puuid]
+                placement = player_data.get("placement", 0)
+
+                # Update last match ID for this player
+                uinfo["last_match_id"] = new_match_id
+                save_user_data()
+
+                member = guild.get_member(int(uid))
+                if not member:
+                    continue
+
+                # Mark as no longer in game
+                if uid in state.game_states:
+                    state.game_states[uid]["in_game"] = False
+
+                print(f"📊 {uinfo['riot_name']} placed #{placement} (found in {info['riot_name']}'s match)")
+                await queue_result(self.bot, guild_id, uid, member, uinfo, match_data, player_data, placement)
+                players_found += 1
+
+        print(f"✅ Found {players_found} registered player(s) in match {new_match_id[:12]}...")
 
 
 async def setup(bot):

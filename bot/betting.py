@@ -246,14 +246,20 @@ def calculate_payouts(bd: dict, placement: int) -> dict:
 
 
 async def queue_result(bot, guild_id: int, user_id: str, member, info, match_data, player_data, placement):
-    """Queue a player's result for combined announcement."""
+    """Queue a player's result for combined announcement. Deduplicates by user_id."""
+    if guild_id not in state.pending_results:
+        state.pending_results[guild_id] = {"results": [], "task": None}
+
+    # Deduplicate — don't queue same player twice
+    already_queued = {r["user_id"] for r in state.pending_results[guild_id]["results"]}
+    if user_id in already_queued:
+        print(f"⏭️ {info['riot_name']} already in queue, skipping duplicate")
+        return
+
     result = {
         "user_id": user_id, "member": member, "info": info,
         "match_data": match_data, "player_data": player_data, "placement": placement,
     }
-
-    if guild_id not in state.pending_results:
-        state.pending_results[guild_id] = {"results": [], "task": None}
 
     state.pending_results[guild_id]["results"].append(result)
     print(f"📋 Queued result: {info['riot_name']} #{placement} ({len(state.pending_results[guild_id]['results'])} pending)")
