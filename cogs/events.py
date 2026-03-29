@@ -26,6 +26,13 @@ class Events(commands.Cog):
         load_user_data()
         load_settings()
         load_balances()
+
+        # Reset all balances on every restart
+        for uid in state.user_balances:
+            state.user_balances[uid]["balance"] = STARTING_BALANCE
+        save_balances()
+        print(f"💰 All balances reset to {STARTING_BALANCE} coins on startup")
+
         detected_set = await load_champion_pool()
 
         # Seasonal reset: if TFT set changed, reset all balances
