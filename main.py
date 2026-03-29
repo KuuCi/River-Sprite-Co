@@ -37,7 +37,7 @@ async def main():
     if not rk:
         print("⚠️ No RIOT_API_KEY — match results won't work")
     else:
-        print(f"🔑 Riot key: {rk[:12]}...")
+        print(f"🔑 Riot key: {rk[:6]}...")
 
     async with bot:
         await load_cogs()
