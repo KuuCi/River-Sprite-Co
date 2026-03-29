@@ -33,11 +33,12 @@ async def main():
         print("❌ Set DISCORD_BOT_TOKEN in .env")
         return
 
-    rk = os.getenv("RIOT_API_KEY")
+    rk = os.getenv("RIOT_API_KEY", "").strip()
     if not rk:
         print("⚠️ No RIOT_API_KEY — match results won't work")
     else:
-        print(f"🔑 Riot key: {rk[:6]}...")
+        print(f"🔑 Riot key: {rk[:15]}... (length: {len(rk)})")
+        os.environ["RIOT_API_KEY"] = rk
 
     async with bot:
         await load_cogs()
