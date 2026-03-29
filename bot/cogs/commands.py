@@ -228,6 +228,16 @@ class Commands(commands.Cog):
         await interaction.response.send_message(f"🔄 Reset **{count}** user(s) to **{amount}** coins.")
         print(f"🔄 Admin {interaction.user.display_name} reset all balances to {amount}")
 
+    @app_commands.command(name="clearusers", description="Wipe ALL registrations — everyone must /register again (Admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def clear_users(self, interaction: discord.Interaction):
+        count = len(state.user_data)
+        state.user_data.clear()
+        state.game_states.clear()
+        save_user_data()
+        await interaction.response.send_message(f"🗑️ Cleared **{count}** registered user(s). Everyone needs to `/register` again.")
+        print(f"🗑️ Admin {interaction.user.display_name} cleared all user registrations")
+
     @app_commands.command(name="rules", description="Show rules and commands")
     async def rules(self, interaction: discord.Interaction):
         embed = discord.Embed(title="📜 TFT Betting Bot", color=discord.Color.blue())
