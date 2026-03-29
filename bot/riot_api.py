@@ -8,6 +8,7 @@ class RiotAPI:
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.headers = {"X-Riot-Token": api_key}
+        self.auth_failed = False  # Set on 401/403, stops retries
 
     async def _get(self, url: str) -> tuple[int, Optional[dict]]:
         async with aiohttp.ClientSession() as session:
@@ -19,9 +20,10 @@ class RiotAPI:
                 if resp.status == 429:
                     print(f"⚠️ Rate limited! Retry after {resp.headers.get('Retry-After', '?')}s")
                     return 429, None
-                if resp.status == 403:
-                    print(f"❌ Riot API key invalid/expired (403). Regenerate at developer.riotgames.com")
-                    return 403, None
+                if resp.status in (401, 403):
+                    self.auth_failed = True
+                    print(f"❌ Riot API key invalid/expired ({resp.status}). Regenerate at developer.riotgames.com")
+                    return resp.status, None
                 print(f"❌ Riot API {resp.status}: {(await resp.text())[:200]}")
                 return resp.status, None
 
