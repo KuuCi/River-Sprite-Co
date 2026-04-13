@@ -220,7 +220,7 @@ class Events(commands.Cog):
                 ub["vc_minutes_today"] = ub.get("vc_minutes_today", 0) + mins
                 ub["vc_join_time"] = None
                 save_balances()
-                if not ub.get("daily_claimed") and ub.get("vc_minutes_today", 0) >= VC_MINUTES_FOR_DAILY:
+                if not ub.get("daily_claimed") and ub.get("vc_minutes_today", 0) >= VC_MINUTES_FOR_DAILY and ub.get("balance", 0) < 200:
                     ub["daily_claimed"] = True
                     nb = update_balance(user_id, DAILY_BONUS)
                     ch_id = state.announcement_channels.get(member.guild.id)
